@@ -66,6 +66,15 @@ public partial class OverlayWindow : Window
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
+        // Consume the press and keep the overlay open until the release. Committing on mouse-up
+        // ensures the overlay window swallows BOTH the down and the up, so neither reaches (or
+        // activates) whatever is under the cursor once we close.
+        e.Handled = true;
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
         if (Native.GetCursorPos(out var pt))
             Commit(_shot.GetColor(pt.X, pt.Y));
         else
