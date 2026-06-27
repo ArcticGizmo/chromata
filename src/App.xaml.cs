@@ -2,11 +2,16 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using Microsoft.Win32;
+using Velopack;
+using Velopack.Sources;
 using Application = System.Windows.Application;
 using Clipboard = System.Windows.Clipboard;
+using Color = System.Windows.Media.Color;
 using WinForms = System.Windows.Forms;
 
 namespace Chromata;
@@ -17,21 +22,27 @@ public partial class App : Application
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValueName = "Chromata";
 
+    private readonly Settings _settings = Settings.Load();
+
     private WinForms.NotifyIcon? _tray;
+    private WinForms.ToolStripMenuItem? _pickItem;
+    private WinForms.ToolStripMenuItem? _recentRoot;
     private HwndSource? _msgWindow;
     private OverlayWindow? _overlay;
+    private SettingsWindow? _settingsWindow;
+    private bool _updateInProgress;
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
         CreateMessageWindow();
         CreateTrayIcon();
+        RebuildRecentMenu();
 
-        // Global "pick" hotkey: Ctrl+Alt+C.
-        if (!Native.RegisterHotKey(_msgWindow!.Handle, HotkeyId,
-                Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x43 /* 'C' */))
+        if (!RegisterHotkey(_settings.HotkeyModifiers, _settings.HotkeyVk))
         {
             _tray!.ShowBalloonTip(3000, "Chromata",
-                "Couldn't register Ctrl+Alt+C (another app may own it). Use the tray menu to pick.",
+                $"Couldn't register {HotkeyDisplay(_settings.HotkeyModifiers, _settings.HotkeyVk)} " +
+                "(another app may own it). Pick from the tray menu, or choose another shortcut in Settings.",
                 WinForms.ToolTipIcon.Warning);
         }
     }
@@ -64,8 +75,19 @@ public partial class App : Application
     private void CreateTrayIcon()
     {
         var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("Pick a colour\tCtrl+Alt+C", null, (_, _) => StartPick());
+
+        _pickItem = new WinForms.ToolStripMenuItem(
+            $"Pick a colour\t{HotkeyDisplay(_settings.HotkeyModifiers, _settings.HotkeyVk)}");
+        _pickItem.Click += (_, _) => StartPick();
+        menu.Items.Add(_pickItem);
+
+        _recentRoot = new WinForms.ToolStripMenuItem("Recent colours");
+        menu.Items.Add(_recentRoot);
+
         menu.Items.Add(new WinForms.ToolStripSeparator());
+
+        menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
+        menu.Items.Add("Check for updates…", null, (_, _) => CheckForUpdates());
 
         var startup = new WinForms.ToolStripMenuItem("Start with Windows")
         {
@@ -82,10 +104,46 @@ public partial class App : Application
         {
             Icon = BuildTrayIcon(),
             Visible = true,
-            Text = "Chromata — Ctrl+Alt+C to pick a colour",
+            Text = "Chromata — pick a colour from anywhere on screen",
             ContextMenuStrip = menu,
         };
         _tray.DoubleClick += (_, _) => StartPick();
+    }
+
+    private void RebuildRecentMenu()
+    {
+        if (_recentRoot is null) return;
+        _recentRoot.DropDownItems.Clear();
+
+        if (_settings.History.Count == 0)
+        {
+            _recentRoot.DropDownItems.Add(new WinForms.ToolStripMenuItem("(no colours yet)") { Enabled = false });
+            return;
+        }
+
+        foreach (string hex in _settings.History)
+        {
+            var item = new WinForms.ToolStripMenuItem(hex) { Image = MakeSwatch(hex) };
+            string captured = hex;
+            item.Click += (_, _) => ReCopy(captured);
+            _recentRoot.DropDownItems.Add(item);
+        }
+
+        _recentRoot.DropDownItems.Add(new WinForms.ToolStripSeparator());
+        var clear = new WinForms.ToolStripMenuItem("Clear history");
+        clear.Click += (_, _) => { _settings.History.Clear(); _settings.Save(); RebuildRecentMenu(); };
+        _recentRoot.DropDownItems.Add(clear);
+    }
+
+    private static Image MakeSwatch(string hex)
+    {
+        var (r, g, b) = ParseHex(hex);
+        var bmp = new Bitmap(16, 16, PixelFormat.Format32bppArgb);
+        using var gfx = Graphics.FromImage(bmp);
+        using var fill = new SolidBrush(System.Drawing.Color.FromArgb(r, g, b));
+        gfx.FillRectangle(fill, 1, 1, 14, 14);
+        gfx.DrawRectangle(Pens.Gray, 0, 0, 15, 15);
+        return bmp;
     }
 
     private static Icon BuildTrayIcon()
@@ -117,6 +175,46 @@ public partial class App : Application
         return IntPtr.Zero;
     }
 
+    // ----- Hotkey ------------------------------------------------------------
+
+    private bool RegisterHotkey(uint modifiers, uint vk)
+    {
+        Native.UnregisterHotKey(_msgWindow!.Handle, HotkeyId);
+        return Native.RegisterHotKey(_msgWindow.Handle, HotkeyId, modifiers | Native.MOD_NOREPEAT, vk);
+    }
+
+    /// <summary>Re-bind the global hotkey. Reverts to the previous combo if the new one is taken.</summary>
+    public bool ApplyHotkey(uint modifiers, uint vk)
+    {
+        uint oldMods = _settings.HotkeyModifiers, oldVk = _settings.HotkeyVk;
+
+        if (!RegisterHotkey(modifiers, vk))
+        {
+            RegisterHotkey(oldMods, oldVk); // restore the working binding
+            _tray?.ShowBalloonTip(3000, "Chromata",
+                $"{HotkeyDisplay(modifiers, vk)} is already in use by another app.", WinForms.ToolTipIcon.Warning);
+            return false;
+        }
+
+        _settings.HotkeyModifiers = modifiers;
+        _settings.HotkeyVk = vk;
+        _settings.Save();
+        if (_pickItem is not null)
+            _pickItem.Text = $"Pick a colour\t{HotkeyDisplay(modifiers, vk)}";
+        return true;
+    }
+
+    internal static string HotkeyDisplay(uint mods, uint vk)
+    {
+        var sb = new StringBuilder();
+        if ((mods & Native.MOD_CONTROL) != 0) sb.Append("Ctrl+");
+        if ((mods & Native.MOD_ALT) != 0) sb.Append("Alt+");
+        if ((mods & Native.MOD_SHIFT) != 0) sb.Append("Shift+");
+        if ((mods & Native.MOD_WIN) != 0) sb.Append("Win+");
+        sb.Append(KeyInterop.KeyFromVirtualKey((int)vk));
+        return sb.ToString();
+    }
+
     // ----- Pick session ------------------------------------------------------
 
     private void StartPick()
@@ -137,16 +235,98 @@ public partial class App : Application
 
     private void CommitColor(byte r, byte g, byte b)
     {
-        string hex = $"#{r:X2}{g:X2}{b:X2}";
+        string text = Settings.FormatColor(_settings.Format, r, g, b);
+        CopyToClipboard(text);
 
+        _settings.AddHistory(Settings.ToHex(r, g, b));
+        _settings.Save();
+        RebuildRecentMenu();
+
+        ShowToast(text, Color.FromRgb(r, g, b));
+    }
+
+    private void ReCopy(string hex)
+    {
+        var (r, g, b) = ParseHex(hex);
+        string text = Settings.FormatColor(_settings.Format, r, g, b);
+        CopyToClipboard(text);
+        ShowToast(text, Color.FromRgb(r, g, b));
+    }
+
+    private static void CopyToClipboard(string text)
+    {
         // Clipboard can briefly be locked by another process; retry a few times.
         for (int attempt = 0; attempt < 5; attempt++)
         {
-            try { Clipboard.SetText(hex); break; }
-            catch (COMException) { System.Threading.Thread.Sleep(40); }
+            try { Clipboard.SetText(text); return; }
+            catch (COMException) { Thread.Sleep(40); }
+        }
+    }
+
+    private static void ShowToast(string text, Color color)
+    {
+        try { new ToastWindow(text, color).Show(); }
+        catch { /* confirmation is best-effort; the colour is already on the clipboard */ }
+    }
+
+    private static (byte R, byte G, byte B) ParseHex(string hex)
+    {
+        hex = hex.TrimStart('#');
+        return (Convert.ToByte(hex.Substring(0, 2), 16),
+                Convert.ToByte(hex.Substring(2, 2), 16),
+                Convert.ToByte(hex.Substring(4, 2), 16));
+    }
+
+    // ----- Settings window ---------------------------------------------------
+
+    private void OpenSettings()
+    {
+        if (_settingsWindow is { IsLoaded: true })
+        {
+            _settingsWindow.Activate();
+            return;
         }
 
-        _tray?.ShowBalloonTip(1200, "Chromata", $"{hex} copied to clipboard", WinForms.ToolTipIcon.None);
+        _settingsWindow = new SettingsWindow(_settings);
+        _settingsWindow.HotkeyChanged += (mods, vk) => ApplyHotkey(mods, vk);
+        _settingsWindow.FormatChanged += fmt => { _settings.Format = fmt; _settings.Save(); };
+        _settingsWindow.HistoryCleared += () => { _settings.History.Clear(); _settings.Save(); RebuildRecentMenu(); };
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
+    }
+
+    // ----- Updates (Velopack) ------------------------------------------------
+
+    private async void CheckForUpdates()
+    {
+        if (_updateInProgress) return;
+        _updateInProgress = true;
+        try
+        {
+            _tray?.ShowBalloonTip(3000, "Chromata", "Checking for updates…", WinForms.ToolTipIcon.Info);
+
+            var mgr = new UpdateManager(new GithubSource(AppInfo.RepoUrl, null, false));
+            var update = await mgr.CheckForUpdatesAsync();
+            if (update is null)
+            {
+                _tray?.ShowBalloonTip(4000, "Chromata", "You're on the latest version.", WinForms.ToolTipIcon.Info);
+                return;
+            }
+
+            _tray?.ShowBalloonTip(5000, "Chromata",
+                $"Downloading v{update.TargetFullRelease.Version}…", WinForms.ToolTipIcon.Info);
+            await mgr.DownloadUpdatesAsync(update);
+            mgr.ApplyUpdatesAndRestart(update); // exits the process
+        }
+        catch (Exception ex)
+        {
+            _tray?.ShowBalloonTip(6000, "Chromata — update failed", ex.Message, WinForms.ToolTipIcon.Error);
+        }
+        finally
+        {
+            _updateInProgress = false;
+        }
     }
 
     // ----- Run-at-startup ----------------------------------------------------

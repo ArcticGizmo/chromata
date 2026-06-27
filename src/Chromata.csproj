@@ -10,8 +10,16 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Chromata</AssemblyName>
     <RootNamespace>Chromata</RootNamespace>
+    <Product>Chromata</Product>
+    <Version>0.1.0</Version>
+    <!-- Custom entry point (Program.Main) so Velopack runs before the WPF app starts. -->
+    <StartupObject>Chromata.Program</StartupObject>
     <!-- DPI awareness is set process-wide in app.manifest (PerMonitorV2); silence the WinForms-specific analyzer. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
 
 </Project>
