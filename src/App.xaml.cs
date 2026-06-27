@@ -107,7 +107,12 @@ public partial class App : Application
             Text = "Chromata — pick a colour from anywhere on screen",
             ContextMenuStrip = menu,
         };
-        _tray.DoubleClick += (_, _) => StartPick();
+        // Left-click the tray icon to pick; right-click still opens the context menu.
+        _tray.MouseClick += (_, e) =>
+        {
+            if (e.Button == WinForms.MouseButtons.Left)
+                StartPick();
+        };
     }
 
     private void RebuildRecentMenu()
