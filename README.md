@@ -1,4 +1,13 @@
-# Chromata
+<h1 align="center">Chromata</h1>
+<p align="center">
+ <img src="./src/icon.png" width="150"  />
+</p>
+
+<p align="center">
+<strong>Grab that color instantly</strong>
+</p>
+
+<br>
 
 A lightweight screen colour picker for Windows 11. Hit a hotkey, the screen freezes, click
 any pixel, and its hex colour is on your clipboard.

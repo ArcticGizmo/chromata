@@ -153,19 +153,18 @@ public partial class App : Application
 
     private static Icon BuildTrayIcon()
     {
-        // Draw a simple colour-wheel glyph at runtime so we don't ship an .ico file.
+        // Load the app icon (embedded as a resource) and render it at tray size.
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        using var stream = asm.GetManifestResourceStream("Chromata.icon.png")
+            ?? throw new InvalidOperationException("Embedded resource 'Chromata.icon.png' not found.");
+        using var source = new Bitmap(stream);
         using var bmp = new Bitmap(32, 32, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(bmp))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
             g.Clear(System.Drawing.Color.Transparent);
-            var rect = new Rectangle(3, 3, 26, 26);
-            g.FillPie(Brushes.OrangeRed, rect, 0, 90);
-            g.FillPie(Brushes.Gold, rect, 90, 90);
-            g.FillPie(Brushes.MediumSeaGreen, rect, 180, 90);
-            g.FillPie(Brushes.DodgerBlue, rect, 270, 90);
-            g.FillEllipse(new SolidBrush(System.Drawing.Color.FromArgb(230, 27, 27, 31)),
-                new Rectangle(11, 11, 10, 10));
+            g.DrawImage(source, new Rectangle(0, 0, 32, 32));
         }
         return Icon.FromHandle(bmp.GetHicon());
     }

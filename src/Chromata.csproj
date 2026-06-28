@@ -10,6 +10,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Chromata</AssemblyName>
     <RootNamespace>Chromata</RootNamespace>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
     <Product>Chromata</Product>
     <Version>0.1.0</Version>
     <!-- Custom entry point (Program.Main) so Velopack runs before the WPF app starts. -->
@@ -20,6 +21,10 @@
 
   <ItemGroup>
     <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="icon.png" />
   </ItemGroup>
 
 </Project>
