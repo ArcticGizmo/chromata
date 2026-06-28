@@ -65,7 +65,7 @@
                 </StackPanel>
             </Grid>
 
-            <TextBlock Text="Click to copy · Esc to cancel"
+            <TextBlock Text="Click to copy · Right-click for formats · Esc to cancel"
                        Foreground="#80FFFFFF" FontSize="10"
                        HorizontalAlignment="Center" Margin="0,6,0,0"/>
         </StackPanel>

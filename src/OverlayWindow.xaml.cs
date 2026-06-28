@@ -7,9 +7,14 @@ using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 
 namespace Chromata;
 
+/// <summary>The result of a pick: the sampled colour plus where the user clicked, and whether
+/// they right-clicked to ask for the copy-format menu rather than committing the default format.</summary>
+public readonly record struct PickOutcome(byte R, byte G, byte B, bool ShowMenu, int PhysX, int PhysY);
+
 /// <summary>
 /// A full-screen, frozen-desktop overlay (Snip style). The user moves over it with a
-/// crosshair and a magnifier loupe; left-click commits the colour, Esc / right-click cancels.
+/// crosshair and a magnifier loupe; left-click commits the colour, right-click opens the
+/// copy-format menu, Esc cancels.
 /// </summary>
 public partial class OverlayWindow : Window
 {
@@ -19,8 +24,8 @@ public partial class OverlayWindow : Window
     private readonly ScreenShot _shot;
     private readonly MagnifierWindow _loupe = new();
 
-    /// <summary>Fires with the chosen colour, or null if cancelled. Always fires once.</summary>
-    public event Action<(byte R, byte G, byte B)?>? Finished;
+    /// <summary>Fires with the pick outcome, or null if cancelled. Always fires once.</summary>
+    public event Action<PickOutcome?>? Finished;
 
     private bool _done;
 
@@ -76,15 +81,37 @@ public partial class OverlayWindow : Window
     {
         base.OnMouseLeftButtonUp(e);
         if (Native.GetCursorPos(out var pt))
-            Commit(_shot.GetColor(pt.X, pt.Y));
+        {
+            var (r, g, b) = _shot.GetColor(pt.X, pt.Y);
+            Commit(new PickOutcome(r, g, b, ShowMenu: false, pt.X, pt.Y));
+        }
         else
+        {
             Commit(null);
+        }
     }
 
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseRightButtonDown(e);
-        Commit(null);
+        // Swallow the press and act on release so this window absorbs BOTH the down and the up —
+        // otherwise the up would reach the desktop and pop its context menu once we close.
+        e.Handled = true;
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        // Right-click asks for the copy-format menu instead of committing the default format.
+        if (Native.GetCursorPos(out var pt))
+        {
+            var (r, g, b) = _shot.GetColor(pt.X, pt.Y);
+            Commit(new PickOutcome(r, g, b, ShowMenu: true, pt.X, pt.Y));
+        }
+        else
+        {
+            Commit(null);
+        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -129,12 +156,12 @@ public partial class OverlayWindow : Window
             Native.SWP_NOSIZE | Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW);
     }
 
-    private void Commit((byte R, byte G, byte B)? color)
+    private void Commit(PickOutcome? outcome)
     {
         if (_done) return;
         _done = true;
         _loupe.Close();
         Close();
-        Finished?.Invoke(color);
+        Finished?.Invoke(outcome);
     }
 }

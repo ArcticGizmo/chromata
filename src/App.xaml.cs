@@ -228,11 +228,27 @@ public partial class App : Application
 
         var shot = new ScreenShot();
         _overlay = new OverlayWindow(shot);
-        _overlay.Finished += color =>
+        _overlay.Finished += outcome =>
         {
             _overlay = null;
-            shot.Dispose();
-            if (color is { } c) CommitColor(c.R, c.G, c.B);
+            if (outcome is not { } o)
+            {
+                shot.Dispose();
+                return;
+            }
+
+            if (o.ShowMenu)
+            {
+                // The overlay (and its loupe) have closed; float the copy-format menu where the
+                // user right-clicked. The shot is no longer needed — the colour is already sampled.
+                shot.Dispose();
+                ShowFormatMenu(o.R, o.G, o.B, o.PhysX, o.PhysY);
+            }
+            else
+            {
+                shot.Dispose();
+                CommitColor(o.R, o.G, o.B);
+            }
         };
         _overlay.Show();
         _overlay.Activate();
@@ -241,6 +257,21 @@ public partial class App : Application
     private void CommitColor(byte r, byte g, byte b)
     {
         string text = Settings.FormatColor(_settings.Format, r, g, b);
+        Deliver(text, r, g, b);
+    }
+
+    /// <summary>Show the right-click menu of every colour format; the chosen one is copied.</summary>
+    private void ShowFormatMenu(byte r, byte g, byte b, int physX, int physY)
+    {
+        var menu = new FormatPickerWindow(r, g, b, physX, physY);
+        menu.FormatChosen += text => Deliver(text, r, g, b);
+        menu.Show();
+        menu.Activate();
+    }
+
+    /// <summary>Copy a formatted colour, record it in history, and confirm with a toast.</summary>
+    private void Deliver(string text, byte r, byte g, byte b)
+    {
         CopyToClipboard(text);
 
         _settings.AddHistory(Settings.ToHex(r, g, b));

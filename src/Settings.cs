@@ -11,6 +11,9 @@ public enum ColorFormat
     Hsl,        // hsl(146, 50%, 36%)
 }
 
+/// <summary>A single labelled representation of a colour, for the right-click copy menu.</summary>
+public sealed record ColorFormatOption(string Label, string Value);
+
 /// <summary>
 /// User settings persisted as JSON in %LOCALAPPDATA%\Chromata\settings.json.
 /// </summary>
@@ -75,6 +78,37 @@ public sealed class Settings
         ColorFormat.Hsl => FormatHsl(r, g, b),
         _ => $"#{r:X2}{g:X2}{b:X2}",
     };
+
+    /// <summary>Every representation offered by the right-click copy menu, in display order.</summary>
+    public static IReadOnlyList<ColorFormatOption> AllFormats(byte r, byte g, byte b) => new[]
+    {
+        new ColorFormatOption("HEX", FormatColor(ColorFormat.HexUpper, r, g, b)),
+        new ColorFormatOption("hex", FormatColor(ColorFormat.HexLower, r, g, b)),
+        new ColorFormatOption("RGB", FormatColor(ColorFormat.Rgb, r, g, b)),
+        new ColorFormatOption("HSL", FormatColor(ColorFormat.Hsl, r, g, b)),
+        new ColorFormatOption("HSV", FormatHsv(r, g, b)),
+    };
+
+    private static string FormatHsv(byte r, byte g, byte b)
+    {
+        double rf = r / 255.0, gf = g / 255.0, bf = b / 255.0;
+        double max = Math.Max(rf, Math.Max(gf, bf));
+        double min = Math.Min(rf, Math.Min(gf, bf));
+        double d = max - min;
+        double h = 0;
+
+        if (d != 0)
+        {
+            if (max == rf) h = (gf - bf) / d + (gf < bf ? 6 : 0);
+            else if (max == gf) h = (bf - rf) / d + 2;
+            else h = (rf - gf) / d + 4;
+            h /= 6;
+        }
+
+        double s = max == 0 ? 0 : d / max;
+        double v = max;
+        return $"hsv({Math.Round(h * 360)}, {Math.Round(s * 100)}%, {Math.Round(v * 100)}%)";
+    }
 
     private static string FormatHsl(byte r, byte g, byte b)
     {
