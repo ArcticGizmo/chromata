@@ -1,0 +1,17 @@
+<Window x:Class="Chromata.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chromata"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Background="Black"
+        Cursor="Cross"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <!-- The frozen desktop fills the window 1:1 in physical pixels (window is sized to the virtual screen). -->
+    <Image x:Name="Frozen"
+           Stretch="Fill"
+           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+</Window>
